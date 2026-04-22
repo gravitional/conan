@@ -1,13 +1,13 @@
 import os
 import textwrap
-from shlex import quote
 from collections import OrderedDict
 from contextlib import contextmanager
+from shlex import quote
 
 from conan.api.output import ConanOutput
-from conan.internal.subsystems import deduce_subsystem, WINDOWS, subsystem_path
 from conan.errors import ConanException
 from conan.internal.model.recipe_ref import ref_matches
+from conan.internal.subsystems import WINDOWS, deduce_subsystem, subsystem_path
 from conan.internal.util.files import save
 
 
@@ -20,9 +20,9 @@ def environment_wrap_command(conanfile, env_filenames, env_folder, cmd, subsyste
     if not env_filenames:
         return cmd
     filenames = [env_filenames] if not isinstance(env_filenames, list) else env_filenames
-    bats, shs, ps1s = [], [], []
+    bats, shs, ps1s, nus = [], [], [], []
 
-    accept = accepted_extensions or ("ps1", "bat", "sh")
+    accept = accepted_extensions or ("ps1", "bat", "sh", "nu")
     # TODO: This implemantation is dirty, improve it
     for f in filenames:
         f = f if os.path.isabs(f) else os.path.join(env_folder, f)
@@ -36,21 +36,27 @@ def environment_wrap_command(conanfile, env_filenames, env_folder, cmd, subsyste
         elif f.lower().endswith(".ps1") and "ps1" in accept:
             if os.path.isfile(f):
                 ps1s.append(f)
+        elif f.lower().endswith(".nu") and "nu" in accept:
+            if os.path.isfile(f):
+                nus.append(f)
         else:  # Simple name like "conanrunenv"
             path_bat = "{}.bat".format(f)
             path_sh = "{}.sh".format(f)
             path_ps1 = "{}.ps1".format(f)
+            path_nu = "{}.nu".format(f)
             if os.path.isfile(path_bat) and "bat" in accept:
                 bats.append(path_bat)
             if os.path.isfile(path_ps1) and "ps1" in accept:
                 ps1s.append(path_ps1)
+            if os.path.isfile(path_nu) and "nu" in accept:
+                nus.append(path_nu)
             if os.path.isfile(path_sh) and "sh" in accept:
                 path_sh = subsystem_path(subsystem, path_sh)
                 shs.append(path_sh)
 
-    if bool(bats + ps1s) + bool(shs) > 1:
+    if bool(bats + ps1s + nus) + bool(shs) > 1:
         raise ConanException("Cannot wrap command with different envs,"
-                             "{} - {}".format(bats+ps1s, shs))
+                             "{} - {}".format(bats+ps1s+nus, shs))
 
     powershell = conanfile.conf.get("tools.env.virtualenv:powershell", default="powershell.exe")
 
@@ -69,6 +75,9 @@ def environment_wrap_command(conanfile, env_filenames, env_folder, cmd, subsyste
         ps1_launchers = f'{powershell} -Command "' + " ; ".join('&\'{}\''.format(f) for f in ps1s) + '"'
         cmd = cmd.replace('"', r'\"')
         return '{} ; cmd /c "{}"'.format(ps1_launchers, cmd)
+    elif nus:
+        nus_launchers = " ; ".join(f'source "{n}"' for n in nus)
+        return f'nu -c "{nus_launchers} ; {cmd}"'
     else:
         return cmd
 
@@ -568,6 +577,58 @@ class EnvVars:
         content = f'script_folder="{os.path.abspath(filepath)}"\n' + content
         save(file_location, content)
 
+    def save_nu(self, file_location, generate_deactivate=True):
+        _, filename = os.path.split(file_location)
+        result = []
+        if generate_deactivate:
+            result.append(_nu_deactivate_contents(self._deactivation_mode, self._values, filename))
+        abs_base_path, new_path = _relativize_paths(self._conanfile, "$script_folder")
+        for varname, varvalues in self._values.items():
+            value = varvalues.get_str("$env.{name}", self._subsystem, pathsep=self._pathsep,
+                                      root_path=abs_base_path, script_path=new_path)
+            no_value = varvalues.get_str("", self._subsystem, pathsep=self._pathsep,
+                                         root_path=abs_base_path, script_path=new_path)
+            if generate_deactivate and self._deactivation_mode == "function":
+                result.append(
+                    f'if ("{varname}" in ($env | columns)) {{ '
+                    f'load-env {{ {_old_env_prefix(filename)}_{varname}: $env.{varname} }} '
+                    f'}}'
+                )
+            if varvalues:
+                placeholder_str = f"$env.{varname}"
+                if placeholder_str in value:
+                    value_nu = value.replace(placeholder_str, f"($env.{varname}? | default '')")
+                    value_nu = value_nu.replace('"', '\\"')
+                    no_value = no_value.replace('"', '\\"')
+                    set_value = textwrap.dedent(f"""\
+                        if ("{varname}" in ($env | columns)) {{
+                            $env.{varname} = $\"{value_nu}\"
+                        }} else {{
+                            $env.{varname} = \"{no_value}\"
+                        }}
+                        """)
+                else:
+                    value = value.replace('"', '\\"')
+                    no_value = no_value.replace('"', '\\"')
+                    if value != no_value:
+                        set_value = textwrap.dedent(f"""\
+                            if ("{varname}" in ($env | columns)) {{
+                                $env.{varname} = \"{value}\"
+                            }} else {{
+                                $env.{varname} = \"{no_value}\"
+                            }}
+                            """)
+                    else:
+                        set_value = f'$env.{varname} = "{value}"'
+                result.append(set_value)
+            else:
+                result.append(f'if ("{varname}" in ($env | columns)) {{ hide-env {varname} }}')
+
+        content = "\n".join(result)
+        os.makedirs(os.path.dirname(os.path.abspath(file_location)), exist_ok=True)
+        with open(file_location, "w", encoding="utf-8") as f:
+            f.write(content)
+
     def save_script(self, filename):
         """
         Saves a script file (bat, sh, ps1) with a launcher to set the environment.
@@ -583,9 +644,11 @@ class EnvVars:
         if ext:
             is_bat = ext == ".bat"
             is_ps1 = ext == ".ps1"
+            is_nu = ext == ".nu"
         else:  # Need to deduce it automatically
             is_bat = self._subsystem == WINDOWS
             is_ps1 = self._conanfile.conf.get("tools.env.virtualenv:powershell", check_type=str)
+            is_nu = False
             if is_ps1:
                 filename = filename + ".ps1"
                 is_bat = False
@@ -597,6 +660,8 @@ class EnvVars:
             self.save_bat(path)
         elif is_ps1:
             self.save_ps1(path)
+        elif is_nu:
+            self.save_nu(path)
         else:
             self.save_sh(path)
 
@@ -621,6 +686,43 @@ def _deactivate_func_name(filename):
 
 def _old_env_prefix(filename):
     return f"_CONAN_OLD_{_deactivate_func_name(filename).upper()}"
+
+
+def _nu_deactivate_contents(deactivation_mode, values, filename):
+    vars_list = " ".join(f'"{v}"' for v in values.keys())
+    if deactivation_mode == "function":
+        var_prefix = _old_env_prefix(filename)
+        func_name = _deactivate_func_name(filename)
+        return textwrap.dedent(f"""\
+            def --env deactivate_{func_name} [] {{
+                print "Restoring environment"
+                for $v in [{vars_list}] {{
+                    let old_var = "{var_prefix}_$v"
+                    if ($old_var in ($env | columns)) {{
+                        let val = ($env | get $old_var)
+                        load-env {{ ($v): $val }}
+                        hide-env $old_var
+                    }} else {{
+                        if ($v in ($env | columns)) {{ hide-env $v }}
+                    }}
+                }}
+            }}
+        """)
+
+    deactivate_file = "deactivate_{}".format(filename)
+    lines = [
+        f'"print \\"Restoring environment\\"\\n" | save -f {deactivate_file}'
+    ]
+    for v in values.keys():
+        lines.append(f'if ("{v}" in ($env | columns)) {{')
+        lines.append(f'    let val = ($env | get "{v}" | into string)')
+        lines.append(f'    let line = (["$env.{v} = \\"" $val "\\"\\n"] | str join)')
+        lines.append(f'    $line | save --append {deactivate_file}')
+        lines.append(f'}} else {{')
+        lines.append(f'    let line = "if (\\"{v}\\" in ($env | columns)) {{ hide-env {v} }}\\n"')
+        lines.append(f'    $line | save --append {deactivate_file}')
+        lines.append(f'}}')
+    return "\n".join(lines)
 
 
 def _ps1_deactivate_contents(deactivation_mode, values, filename):

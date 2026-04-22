@@ -165,6 +165,81 @@ def test_env_files_sh(env, prevenv, deactivation_mode):
         check_env_files_output(cmd, prevenv)
 
 
+def test_env_files_nu(env, prevenv):
+    prevenv.update(dict(os.environ.copy()))
+
+    display = textwrap.dedent("""\
+        print $"MyVar=($env.MyVar? | default '')!!"
+        print $"MyVar1=($env.MyVar1? | default '')!!"
+        print $"MyVar2=($env.MyVar2? | default '')!!"
+        print $"MyVar3=($env.MyVar3? | default '')!!"
+        print $"MyVar4=($env.MyVar4? | default '')!!"
+        print $"MyVar5=($env.MyVar5? | default '')!!"
+        print $"MyVar6=($env.MyVar6? | default '')!!"
+        print $"MyPath1=($env.MyPath1? | default '')!!"
+        print $"MyPath2=($env.MyPath2? | default '')!!"
+        print $"MyPath3=($env.MyPath3? | default '')!!"
+        print $"MyPath4=($env.MyPath4? | default '')!!"
+    """)
+
+    with chdir(temp_folder()):
+        env = env.vars(ConanFileMock())
+        env._subsystem = WINDOWS
+        env.save_nu("test.nu")
+        save("display.nu", display)
+
+        # Step 1: Run activate to generate deactivate file
+        subprocess.run("nu test.nu", env=prevenv, shell=True, check=True)
+
+        # Step 2: Verify activate
+        cmd_activate = 'nu -c "source test.nu; source display.nu"'
+        result = subprocess.Popen(cmd_activate, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                  env=prevenv, shell=True).communicate()
+        out = result[0].decode()
+        assert "MyVar=MyValue!!" in out
+        assert "MyVar1=MyValue1!!" in out
+        assert "MyVar2=OldVar2 MyValue2!!" in out
+        assert "MyVar3=MyValue3 OldVar3 with spaces!!" in out
+        assert "MyVar4=!!" in out
+        assert "MyVar5=MyValue5 With Space5=More Space5;:More!!" in out
+        assert "MyVar6=MyValue6!!" in out
+        assert "MyPath1=/Some/Path1/!!" in out
+        assert os.pathsep.join(["MyPath2=OldPath2", "/Some/Path2/", "/Other/Path2/!!"]) in out
+        assert os.pathsep.join(["MyPath3=/Some/Path3/", "OldPath3!!"]) in out
+        assert "MyPath4=!!" in out
+
+        # Step 3: Verify deactivate
+        # Create a script that sets activated values, then sources deactivate
+        deactivate_verify = textwrap.dedent("""\
+            $env.MyVar = "MyValue"
+            $env.MyVar1 = "MyValue1"
+            $env.MyVar2 = "OldVar2 MyValue2"
+            $env.MyVar3 = "MyValue3 OldVar3 with spaces"
+            $env.MyVar5 = "MyValue5 With Space5=More Space5;:More"
+            $env.MyVar6 = "MyValue6"
+            $env.MyPath1 = "/Some/Path1/"
+            $env.MyPath2 = "OldPath2;/Some/Path2/;/Other/Path2/"
+            $env.MyPath3 = "/Some/Path3/;OldPath3"
+            source deactivate_test.nu
+            source display.nu
+        """)
+        save("deactivate_verify.nu", deactivate_verify)
+        result = subprocess.Popen("nu deactivate_verify.nu", stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                  env=prevenv, shell=True).communicate()
+        out = result[0].decode()
+        assert "MyVar=!!" in out
+        assert "MyVar1=OldVar1!!" in out
+        assert "MyVar2=OldVar2!!" in out
+        assert "MyVar3=OldVar3 with spaces!!" in out
+        assert "MyVar4=OldVar4 with (some) special @ characters!!" in out
+        assert "MyVar5=!!" in out
+        assert "MyVar6=!!" in out
+        assert "MyPath1=OldPath1!!" in out
+        assert "MyPath2=OldPath2!!" in out
+        assert "MyPath3=OldPath3!!" in out
+        assert "MyPath4=OldPath4!!" in out
+
+
 def test_relative_paths():
     folder = temp_folder()
     scripts_folder = os.path.join(folder, "myscripts")
