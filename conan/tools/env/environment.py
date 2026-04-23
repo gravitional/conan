@@ -15,8 +15,7 @@ class _EnvVarPlaceHolder:
     pass
 
 
-def environment_wrap_command(conanfile, env_filenames, env_folder, cmd, subsystem=None,
-                             accepted_extensions=None):
+def environment_wrap_command(conanfile, env_filenames, env_folder, cmd, subsystem=None, accepted_extensions=None):
     if not env_filenames:
         return cmd
     filenames = [env_filenames] if not isinstance(env_filenames, list) else env_filenames
@@ -55,29 +54,29 @@ def environment_wrap_command(conanfile, env_filenames, env_folder, cmd, subsyste
                 shs.append(path_sh)
 
     if bool(bats + ps1s + nus) + bool(shs) > 1:
-        raise ConanException("Cannot wrap command with different envs,"
-                             "{} - {}".format(bats+ps1s+nus, shs))
+        raise ConanException("Cannot wrap command with different envs,{} - {}".format(bats + ps1s + nus, shs))
 
     powershell = conanfile.conf.get("tools.env.virtualenv:powershell", default="powershell.exe")
+    nushell = conanfile.conf.get("tools.env.virtualenv:nushell", default="nu.exe")
 
     if bats:
         launchers = " && ".join('"{}"'.format(b) for b in bats)
         if ps1s:
-            ps1_launchers = f'{powershell} -Command "' + " ; ".join('&\'{}\''.format(f) for f in ps1s) + '"'
-            cmd = cmd.replace('"', r'\"')
+            ps1_launchers = f'{powershell} -Command "' + " ; ".join("&'{}'".format(f) for f in ps1s) + '"'
+            cmd = cmd.replace('"', r"\"")
             return '{} && {} ; cmd /c "{}"'.format(launchers, ps1_launchers, cmd)
         else:
-            return '{} && {}'.format(launchers, cmd)
+            return "{} && {}".format(launchers, cmd)
     elif shs:
         launchers = " && ".join('. "{}"'.format(f) for f in shs)
-        return '{} && {}'.format(launchers, cmd)
+        return "{} && {}".format(launchers, cmd)
     elif ps1s:
-        ps1_launchers = f'{powershell} -Command "' + " ; ".join('&\'{}\''.format(f) for f in ps1s) + '"'
-        cmd = cmd.replace('"', r'\"')
+        ps1_launchers = f'{powershell} -Command "' + " ; ".join("&'{}'".format(f) for f in ps1s) + '"'
+        cmd = cmd.replace('"', r"\"")
         return '{} ; cmd /c "{}"'.format(ps1_launchers, cmd)
     elif nus:
         nus_launchers = " ; ".join(f'source "{n}"' for n in nus)
-        return f'nu -c "{nus_launchers} ; {cmd}"'
+        return f'{nushell} -c "{nus_launchers} ; {cmd}"'
     else:
         return cmd
 
@@ -102,7 +101,7 @@ class _EnvValue:
             index = self._values.index(_EnvVarPlaceHolder)
             for v in reversed(self._values[:index]):  # Reverse to prepend
                 result.append("{}=+{}{}{}".format(self._name, path, sep, v))
-            for v in self._values[index+1:]:
+            for v in self._values[index + 1 :]:
                 result.append("{}+={}{}{}".format(self._name, path, sep, v))
         else:
             append = ""
@@ -147,7 +146,7 @@ class _EnvValue:
             pass
         else:
             new_value = self._values[:]  # do a copy
-            new_value[index:index + 1] = other._values  # replace the placeholder
+            new_value[index : index + 1] = other._values  # replace the placeholder
             self._values = new_value
 
     def get_str(self, placeholder, subsystem, pathsep, root_path=None, script_path=None):
@@ -201,8 +200,7 @@ class _EnvValue:
     def set_relative_base_folder(self, folder):
         if not self._path:
             return
-        self._values = [os.path.join(folder, v) if v != _EnvVarPlaceHolder else v
-                        for v in self._values]
+        self._values = [os.path.join(folder, v) if v != _EnvVarPlaceHolder else v for v in self._values]
 
 
 class Environment:
@@ -227,7 +225,6 @@ class Environment:
         return repr(self._values)
 
     def dumps(self):
-
         """
         :return: A string with a profile-like original definition, not the full environment
                  values
@@ -351,6 +348,7 @@ class EnvVars:
     Represents an instance of environment variables for a given system. It is obtained from the generic Environment class.
 
     """
+
     def __init__(self, conanfile, values, scope):
         self._values = values  # {var_name: _EnvValue}, just a reference to the Environment
         self._conanfile = conanfile
@@ -369,7 +367,7 @@ class EnvVars:
         return self._values.keys()
 
     def get(self, name, default=None, variable_reference=None):
-        """ get the value of a env-var
+        """get the value of a env-var
 
         :param name: The name of the environment variable.
         :param default: The returned value if the variable doesn't exist, by default None.
@@ -393,11 +391,9 @@ class EnvVars:
                                    can be used to refer to the name of the variable.
         """
         if variable_reference:
-            return {k: v.get_str(variable_reference, self._subsystem, self._pathsep)
-                    for k, v in self._values.items()}.items()
+            return {k: v.get_str(variable_reference, self._subsystem, self._pathsep) for k, v in self._values.items()}.items()
         else:
-            return {k: v.get_value(self._subsystem, self._pathsep)
-                    for k, v in self._values.items()}.items()
+            return {k: v.get_value(self._subsystem, self._pathsep) for k, v in self._values.items()}.items()
 
     @contextmanager
     def apply(self):
@@ -430,7 +426,8 @@ class EnvVars:
         deactivates_variable = f"_CONAN_{self._scope}_DEACTIVATES_DIR"
         dest_variable = f"%{deactivates_variable}%" if is_function else "%~dp0"
 
-        function_preamble = textwrap.dedent(f"""
+        function_preamble = (
+            textwrap.dedent(f"""
             set "local_defined=0"
             if defined {deactivates_variable} goto skip_deactivate_variable
 
@@ -440,14 +437,21 @@ class EnvVars:
             set "PATH=%{deactivates_variable}%;%PATH%"
 
             :skip_deactivate_variable
-        """) if is_function else ""
+        """)
+            if is_function
+            else ""
+        )
 
-        function_epilogue = textwrap.dedent(f"""
+        function_epilogue = (
+            textwrap.dedent(f"""
             if %local_defined% == 0 goto end
             echo set "PATH=%%PATH:%{deactivates_variable}%;=%%" >> "{dest_variable}/{deactivate_file}"
             echo set "{deactivates_variable}=">> "{dest_variable}/{deactivate_file}"
             :end
-        """) if is_function else ""
+        """)
+            if is_function
+            else ""
+        )
 
         variables = " ".join(self._values.keys())
 
@@ -482,10 +486,8 @@ class EnvVars:
         result = [capture]
         abs_base_path, new_path = _relativize_paths(self._conanfile, "%~dp0")
         for varname, varvalues in self._values.items():
-            value = varvalues.get_str("%{name}%", subsystem=self._subsystem, pathsep=self._pathsep,
-                                      root_path=abs_base_path, script_path=new_path)
-            no_value = varvalues.get_str("", subsystem=self._subsystem, pathsep=self._pathsep,
-                                         root_path=abs_base_path, script_path=new_path)
+            value = varvalues.get_str("%{name}%", subsystem=self._subsystem, pathsep=self._pathsep, root_path=abs_base_path, script_path=new_path)
+            no_value = varvalues.get_str("", subsystem=self._subsystem, pathsep=self._pathsep, root_path=abs_base_path, script_path=new_path)
             if value != no_value:
                 set_value = textwrap.dedent(f"""\
                     if defined {varname} (
@@ -511,15 +513,11 @@ class EnvVars:
             result.append(_ps1_deactivate_contents(self._deactivation_mode, self._values, filename))
         abs_base_path, new_path = _relativize_paths(self._conanfile, "$PSScriptRoot")
         for varname, varvalues in self._values.items():
-            value = varvalues.get_str("$env:{name}", subsystem=self._subsystem, pathsep=self._pathsep,
-                                      root_path=abs_base_path, script_path=new_path)
-            no_value = varvalues.get_str("", subsystem=self._subsystem, pathsep=self._pathsep,
-                                         root_path=abs_base_path, script_path=new_path)
+            value = varvalues.get_str("$env:{name}", subsystem=self._subsystem, pathsep=self._pathsep, root_path=abs_base_path, script_path=new_path)
+            no_value = varvalues.get_str("", subsystem=self._subsystem, pathsep=self._pathsep, root_path=abs_base_path, script_path=new_path)
             if generate_deactivate and self._deactivation_mode == "function":
                 # Check environment variable existence before saving value
-                result.append(
-                    f'if ($env:{varname}) {{ $env:{_old_env_prefix(filename)}_{varname} = $env:{varname} }}'
-                )
+                result.append(f"if ($env:{varname}) {{ $env:{_old_env_prefix(filename)}_{varname} = $env:{varname} }}")
             if varvalues:
                 value = value.replace('"', '`"')  # escape quotes
                 no_value = no_value.replace('"', '`"')  # escape quotes
@@ -536,7 +534,7 @@ class EnvVars:
                     set_value = f'$env:{varname}="{value}"'
                 result.append(set_value)
             else:
-                result.append('if (Test-Path env:{0}) {{ Remove-Item env:{0} }}'.format(varname))
+                result.append("if (Test-Path env:{0}) {{ Remove-Item env:{0} }}".format(varname))
 
         content = "\n".join(result)
         # It is very important to save it correctly with utf-16, the Conan util save() is broken
@@ -552,8 +550,7 @@ class EnvVars:
             result.append(_sh_deactivate_contents(self._deactivation_mode, self._values, filename))
         abs_base_path, new_path = _relativize_paths(self._conanfile, "$script_folder")
         for varname, varvalues in self._values.items():
-            value = varvalues.get_str("${name}", self._subsystem, pathsep=self._pathsep,
-                                      root_path=abs_base_path, script_path=new_path)
+            value = varvalues.get_str("${name}", self._subsystem, pathsep=self._pathsep, root_path=abs_base_path, script_path=new_path)
             placeholder = f"${varname}"
             sep = self._pathsep if varvalues._path else varvalues._sep  # noqa
             if value.endswith(sep + placeholder):
@@ -563,15 +560,11 @@ class EnvVars:
             value = value.replace('"', '\\"')
             if generate_deactivate and self._deactivation_mode == "function":
                 # Check environment variable existence before saving value
-                result.append(
-                    f'if [ -n "${{{varname}+x}}" ]; then '
-                    f'export {_old_env_prefix(filename)}_{varname}="${{{varname}}}"; '
-                    f'fi;'
-                )
+                result.append(f'if [ -n "${{{varname}+x}}" ]; then export {_old_env_prefix(filename)}_{varname}="${{{varname}}}"; fi;')
             if varvalues:
                 result.append(f'export {varname}="{value}"')
             else:
-                result.append(f'unset {varname}')
+                result.append(f"unset {varname}")
 
         content = "\n".join(result)
         content = f'script_folder="{os.path.abspath(filepath)}"\n' + content
@@ -584,16 +577,10 @@ class EnvVars:
             result.append(_nu_deactivate_contents(self._deactivation_mode, self._values, filename))
         abs_base_path, new_path = _relativize_paths(self._conanfile, "$script_folder")
         for varname, varvalues in self._values.items():
-            value = varvalues.get_str("$env.{name}", self._subsystem, pathsep=self._pathsep,
-                                      root_path=abs_base_path, script_path=new_path)
-            no_value = varvalues.get_str("", self._subsystem, pathsep=self._pathsep,
-                                         root_path=abs_base_path, script_path=new_path)
+            value = varvalues.get_str("$env.{name}", self._subsystem, pathsep=self._pathsep, root_path=abs_base_path, script_path=new_path)
+            no_value = varvalues.get_str("", self._subsystem, pathsep=self._pathsep, root_path=abs_base_path, script_path=new_path)
             if generate_deactivate and self._deactivation_mode == "function":
-                result.append(
-                    f'if ("{varname}" in ($env | columns)) {{ '
-                    f'load-env {{ {_old_env_prefix(filename)}_{varname}: $env.{varname} }} '
-                    f'}}'
-                )
+                result.append(f'if ("{varname}" in ($env | columns)) {{ load-env {{ {_old_env_prefix(filename)}_{varname}: $env.{varname} }} }}')
             if varvalues:
                 placeholder_str = f"$env.{varname}"
                 if placeholder_str in value:
@@ -648,9 +635,12 @@ class EnvVars:
         else:  # Need to deduce it automatically
             is_bat = self._subsystem == WINDOWS
             is_ps1 = self._conanfile.conf.get("tools.env.virtualenv:powershell", check_type=str)
-            is_nu = False
+            is_nu = self._conanfile.conf.get("tools.env.virtualenv:nushell", check_type=str)
             if is_ps1:
                 filename = filename + ".ps1"
+                is_bat = False
+            elif is_nu:
+                filename = filename + ".nu"
                 is_bat = False
             else:
                 filename = filename + (".bat" if is_bat else ".sh")
@@ -670,10 +660,7 @@ class EnvVars:
             arch = self._conanfile.settings.get_safe("arch")
             name = name.replace(bt.lower(), bt) if bt else name
             name = name.replace(arch.lower(), arch) if arch else name
-            ConanOutput().warning(f"Creating dotenv file: {name}.env\n"
-                                  "Files generated with absolute paths, not interpolated.\n"
-                                  "When https://github.com/microsoft/vscode-cpptools/issues/13781 "
-                                  "solved, it will get interpolation", warn_tag="experimental")
+            ConanOutput().warning(f"Creating dotenv file: {name}.env\nFiles generated with absolute paths, not interpolated.\nWhen https://github.com/microsoft/vscode-cpptools/issues/13781 solved, it will get interpolation", warn_tag="experimental")
             self.save_dotenv(f"{name}.env")
 
         if self._scope:
@@ -710,18 +697,16 @@ def _nu_deactivate_contents(deactivation_mode, values, filename):
         """)
 
     deactivate_file = "deactivate_{}".format(filename)
-    lines = [
-        f'"print \\"Restoring environment\\"\\n" | save -f {deactivate_file}'
-    ]
+    lines = [f'"print \\"Restoring environment\\"\\n" | save -f {deactivate_file}']
     for v in values.keys():
         lines.append(f'if ("{v}" in ($env | columns)) {{')
         lines.append(f'    let val = ($env | get "{v}" | into string)')
         lines.append(f'    let line = (["$env.{v} = \\"" $val "\\"\\n"] | str join)')
-        lines.append(f'    $line | save --append {deactivate_file}')
-        lines.append(f'}} else {{')
+        lines.append(f"    $line | save --append {deactivate_file}")
+        lines.append("} else {")
         lines.append(f'    let line = "if (\\"{v}\\" in ($env | columns)) {{ hide-env {v} }}\\n"')
-        lines.append(f'    $line | save --append {deactivate_file}')
-        lines.append(f'}}')
+        lines.append(f"    $line | save --append {deactivate_file}")
+        lines.append("}")
     return "\n".join(lines)
 
 
@@ -821,7 +806,7 @@ class ProfileEnvironment:
         return bool(self._environments)
 
     def get_profile_env(self, ref, is_consumer=False):
-        """ computes package-specific Environment
+        """computes package-specific Environment
         it is only called when conanfile.buildenv is called
         the last one found in the profile file has top priority
         """
@@ -850,8 +835,7 @@ class ProfileEnvironment:
             if pattern is None:
                 result.append(env.dumps())
             else:
-                result.append("\n".join("{}:{}".format(pattern, line) if line else ""
-                                        for line in env.dumps().splitlines()))
+                result.append("\n".join("{}:{}".format(pattern, line) if line else "" for line in env.dumps().splitlines()))
         if result:
             result.append("")
         return "\n".join(result)
@@ -863,8 +847,7 @@ class ProfileEnvironment:
             line = line.strip()
             if not line or line.startswith("#"):
                 continue
-            for op, method in (("+=", "append"), ("=+", "prepend"),
-                               ("=!", "unset"), ("=", "define")):
+            for op, method in (("+=", "append"), ("=+", "prepend"), ("=!", "unset"), ("=", "define")):
                 tokens = line.split(op, 1)
                 if len(tokens) != 2:
                     continue
@@ -953,8 +936,7 @@ def generate_aggregated_env(conanfile):
         return result
 
     def deactivate_function_names(filenames):
-        return [os.path.splitext(os.path.basename(s))[0].replace("-", "_")
-                for s in reversed(filenames)]
+        return [os.path.splitext(os.path.basename(s))[0].replace("-", "_") for s in reversed(filenames)]
 
     deactivation_mode = conanfile.conf.get("tools.env:deactivation_mode", default=None, check_type=str)
     generated = []
@@ -968,14 +950,15 @@ def generate_aggregated_env(conanfile):
             # Only the .bat and .ps1 are made relative to current script
             if env_script.endswith(".bat"):
                 path = os.path.relpath(path, conanfile.generators_folder)
-                bats.append("%~dp0/"+path)
+                bats.append("%~dp0/" + path)
             elif env_script.endswith(".sh"):
                 shs.append(subsystem_path(subsystem, path))
             elif env_script.endswith(".ps1"):
                 path = os.path.relpath(path, conanfile.generators_folder)
                 # This $PSScriptRoot uses the current script directory
-                ps1s.append("$PSScriptRoot/"+path)
+                ps1s.append("$PSScriptRoot/" + path)
         if shs:
+
             def sh_content(files):
                 content = ". " + " && . ".join('"{}"'.format(s) for s in files)
                 if deactivation_mode == "function":
@@ -984,12 +967,12 @@ def generate_aggregated_env(conanfile):
                         content += f"    deactivate_{deactivate_name}\n"
                     content += f"    unset -f deactivate_conan{group}\n}}\n"
                 return content
+
             filename = "conan{}.sh".format(group)
             generated.append(filename)
             save(os.path.join(conanfile.generators_folder, filename), sh_content(shs))
             if not deactivation_mode:
-                save(os.path.join(conanfile.generators_folder, "deactivate_{}".format(filename)),
-                     sh_content(deactivates(shs)))
+                save(os.path.join(conanfile.generators_folder, "deactivate_{}".format(filename)), sh_content(deactivates(shs)))
         if bats:
             filename = f"conan{group}.bat"
             deactivate_filename = f"deactivate_{filename}"
@@ -999,26 +982,20 @@ def generate_aggregated_env(conanfile):
 
                 if deactivation_mode == "function":
                     from conan.tools.microsoft.visual import CONAN_VCVARS
+
                     deactivates_var = f"_CONAN_{group}_DEACTIVATES_DIR"
-                    content += [
-                        f'set "{deactivates_var}=%TEMP%\\conan_{group}_%RANDOM%"',
-                        f'mkdir "%{deactivates_var}%"'
-                    ]
+                    content += [f'set "{deactivates_var}=%TEMP%\\conan_{group}_%RANDOM%"', f'mkdir "%{deactivates_var}%"']
                     # TODO: Find a better way to get rid of vcvars deactivation
                     f = [f for f in files if f != f"%~dp0/{CONAN_VCVARS}.bat"]
-                    deactivate_filenames = [f.replace("%~dp0\\", "")
-                                            for f in deactivates(f)]
+                    deactivate_filenames = [f.replace("%~dp0\\", "") for f in deactivates(f)]
 
-                    content += [f'set PATH=%{deactivates_var}%;%PATH%']
+                    content += [f"set PATH=%{deactivates_var}%;%PATH%"]
                     content += [f'echo @echo off > "%{deactivates_var}%\\{deactivate_filename}"']
-                    content += [f'echo call "{b}" >> "%{deactivates_var}%\\{deactivate_filename}"'
-                                for b in deactivate_filenames]
+                    content += [f'echo call "{b}" >> "%{deactivates_var}%\\{deactivate_filename}"' for b in deactivate_filenames]
                     # See https://ss64.com/nt/syntax-replace.html for the syntax below to remove
                     # the deactivation path from PATH when the deactivation script is called
-                    content += [f'echo set "PATH=%%PATH:%{deactivates_var}%;=%%" >> '
-                                f'"%{deactivates_var}%\\{deactivate_filename}"']
-                    content += [f'echo set "{deactivates_var}=" >> '
-                                f'"%{deactivates_var}%\\{deactivate_filename}"']
+                    content += [f'echo set "PATH=%%PATH:%{deactivates_var}%;=%%" >> "%{deactivates_var}%\\{deactivate_filename}"']
+                    content += [f'echo set "{deactivates_var}=" >> "%{deactivates_var}%\\{deactivate_filename}"']
 
                 content += [f'call "{b}"' for b in files]
 
@@ -1027,26 +1004,24 @@ def generate_aggregated_env(conanfile):
             generated.append(filename)
             save(os.path.join(conanfile.generators_folder, filename), bat_content(bats))
             if not deactivation_mode:
-                save(os.path.join(conanfile.generators_folder, deactivate_filename),
-                     bat_content(deactivates(bats)))
+                save(os.path.join(conanfile.generators_folder, deactivate_filename), bat_content(deactivates(bats)))
 
         if ps1s:
+
             def ps1_content(files):
                 content = "\r\n".join(['& "{}"'.format(b) for b in files])
                 if deactivation_mode == "function":
                     content += f"\n\nfunction global:deactivate_conan{group} {{\n"
                     for deactivate_name in deactivate_function_names(ps1s):
                         content += f"    deactivate_{deactivate_name}\n"
-                    content += (f"    Remove-Item -Path function:deactivate_conan{group} "
-                                "-ErrorAction SilentlyContinue"
-                                "\n}\n")
+                    content += f"    Remove-Item -Path function:deactivate_conan{group} -ErrorAction SilentlyContinue\n}}\n"
                 return content
+
             filename = "conan{}.ps1".format(group)
             generated.append(filename)
             save(os.path.join(conanfile.generators_folder, filename), ps1_content(ps1s))
             if not deactivation_mode:
-                save(os.path.join(conanfile.generators_folder, "deactivate_{}".format(filename)),
-                     ps1_content(deactivates(ps1s)))
+                save(os.path.join(conanfile.generators_folder, "deactivate_{}".format(filename)), ps1_content(deactivates(ps1s)))
     if generated:
         conanfile.output.highlight("Generating aggregated env files")
         conanfile.output.info(f"Generated aggregated env files: {generated}")

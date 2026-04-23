@@ -1,10 +1,10 @@
 import copy
+import fnmatch
 import hashlib
 import numbers
+import os
 import platform
 import re
-import os
-import fnmatch
 import textwrap
 
 from jinja2 import Environment, FileSystemLoader
@@ -152,6 +152,7 @@ BUILT_IN_CONFS = {
     "tools.apple:enable_arc": "(boolean) Enable/Disable ARC Apple Clang flags",
     "tools.apple:enable_visibility": "(boolean) Enable/Disable Visibility Apple Clang flags",
     "tools.env.virtualenv:powershell": "If specified, it generates PowerShell launchers (.ps1). Use this configuration setting the PowerShell executable you want to use (e.g., 'powershell.exe' or 'pwsh')",
+    "tools.env.virtualenv:nushell": "If specified, it generates Nushell launchers (.nu). Use this configuration setting the Nushell executable you want to use (e.g., 'nu.exe' or 'nushell')",
     "tools.env:dotenv": "(Experimental) Generate dotenv environment files",
     "tools.env:deactivation_mode": "(Experimental) If 'function', generate a deactivate function instead of a script to unset the environment variables",
     # Compilers/Flags configurations
@@ -210,7 +211,7 @@ class _ConfValue:
             raise ConanException("Conf '{}' must be lowercase".format(name))
         name, important = (name[:-1], True) if name[-1] == "!" else (name, False)
         if isinstance(value, (_PackageOption, SettingsItem)):
-            raise ConanException(f"Invalid 'conf' type, please use Python types (int, str, ...)")
+            raise ConanException("Invalid 'conf' type, please use Python types (int, str, ...)")
         return _ConfValue(name, value, path=path, update=update, important=important)
 
     def __repr__(self):
@@ -271,7 +272,7 @@ class _ConfValue:
             self._value.extend(value)
         else:
             if isinstance(value, (_PackageOption, SettingsItem)):
-                raise ConanException(f"Invalid 'conf' type, please use Python types (int, str, ...)")
+                raise ConanException("Invalid 'conf' type, please use Python types (int, str, ...)")
             self._value.append(value)
 
     def prepend(self, value):
@@ -282,7 +283,7 @@ class _ConfValue:
             self._value = value + self._value
         else:
             if isinstance(value, (_PackageOption, SettingsItem)):
-                raise ConanException(f"Invalid 'conf' type, please use Python types (int, str, ...)")
+                raise ConanException("Invalid 'conf' type, please use Python types (int, str, ...)")
             self._value.insert(0, value)
 
     def compose_conf_value(self, other):

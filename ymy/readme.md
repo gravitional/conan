@@ -261,6 +261,94 @@ def test_env_files_nu(env, prevenv):
 
 ---
 
+## 打包为可执行文件并在真实项目测试
+
+### 方式一：打包为独立 exe（PyInstaller）
+
+项目已内置 `pyinstaller.py` 打包脚本。
+
+**Step 1 — 可编辑模式安装依赖**
+
+```powershell
+cd C:\Users\tom\cocos\conan
+pip install -e .
+```
+
+**Step 2 — 安装 PyInstaller**
+
+```powershell
+pip install pyinstaller
+```
+
+**Step 3 — 运行打包脚本**
+
+```powershell
+python pyinstaller.py
+```
+
+打包成功后输出路径：
+
+```
+C:\Users\tom\cocos\conan\pyinstaller\dist\conan\conan.exe
+```
+
+**Step 4 — 在真实项目上测试**
+
+临时替换 PATH（仅当前终端）：
+
+```powershell
+$env:PATH = "C:\Users\tom\cocos\conan\pyinstaller\dist\conan;$env:PATH"
+conan --version
+conan install . -pr:h=default -pr:b=default
+```
+
+或者直接使用完整路径：
+
+```powershell
+C:\Users\tom\cocos\conan\pyinstaller\dist\conan\conan.exe install . -pr:h=default -pr:b=default
+```
+
+**Step 5 — 检查生成的 .nu 脚本**
+
+```powershell
+ls *.nu                # 查看是否生成了 .nu 文件
+cat conanbuild.nu      # 查看 Nushell 脚本内容
+```
+
+### 方式二：不打包，直接用源码测试（推荐开发阶段）
+
+```powershell
+cd C:\Users\tom\cocos\conan
+pip install -e .
+```
+
+然后直接运行 `conan` 命令即可，它会自动使用当前目录的源码，无需每次重新打包：
+
+```powershell
+conan --version
+conan install .        # 在真实项目中测试
+```
+
+### 快速验证脚本生成
+
+如果想单独验证 `save_nu` / `save_script` 的输出生成：
+
+```python
+from conan.tools.env import Environment
+from conan.test.utils.mocks import ConanFileMock
+
+env = Environment()
+env.define("MY_VAR", "hello")
+env.append_path("MY_PATH", "/some/path")
+
+e = env.vars(ConanFileMock())
+e.save_script("test.nu")   # 显式指定 .nu 扩展名
+```
+
+运行后查看生成的 `test.nu` 文件内容。
+
+---
+
 ## 关键教训
 
 1. **不要假设所有 shell 的 `source`/`.` 行为相同**。Nushell 的 `source` 是编译时的，这是最大的陷阱。
